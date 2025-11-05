@@ -58,7 +58,7 @@ public class ConfigService {
             if(resp.statusCode() == 200){
                 ServerAppSettingsDto dto = mapper.readValue(resp.body(), ServerAppSettingsDto.class);
                 cached = dto;
-                log.info("onfig refreshed successfully from {}", url);
+                log.info("Config refreshed successfully from {}", url);
             } else{
                 log.error("Config fetch failed: HTTP {}", resp.statusCode());
             }
