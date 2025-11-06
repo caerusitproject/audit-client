@@ -1,5 +1,6 @@
 package com.caerus.audit.client.service;
 
+import com.caerus.audit.client.queue.PersistentFileQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,12 +19,12 @@ import java.util.concurrent.TimeUnit;
 public class ScreenshotService {
     private final Logger log = LoggerFactory.getLogger(ScreenshotService.class);
     private final ConfigService config;
-    private final FileQueue queue;
+    private final PersistentFileQueue queue;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private Robot robot;
     private volatile boolean running = false;
 
-    public ScreenshotService(ConfigService config, FileQueue queue) {
+    public ScreenshotService(ConfigService config, PersistentFileQueue queue) {
         this.config = config;
         this.queue = queue;
         try {

@@ -110,12 +110,17 @@ public class WebSocketClient {
         }
     }
 
-    public boolean waitForAck(String fileName, long timeoutSeconds){
-        CompletableFuture<Boolean> f = new CompletableFuture<>();
-        ackMap.put(fileName, f);
-        try{
-            return f.get(timeoutSeconds, TimeUnit.SECONDS);
+    public boolean waitForAck(String fileName, Duration timeout) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        ackMap.put(fileName, future);
+        try {
+            return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("Timeout waiting for ack of {}", fileName);
+            ackMap.remove(fileName);
+            return false;
         } catch (Exception e) {
+            log.error("Error waiting for ack of {}: {}", fileName, e.getMessage());
             ackMap.remove(fileName);
             return false;
         }
