@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -38,31 +39,40 @@ public class UploadService implements Runnable{
         while (running) {
             try {
                 Path file = queue.take();
-                log.info("Uploading file: {}", file.getFileName());
+                String uploadId = UUID.randomUUID().toString();
+                log.info("Uploading file [{}] with uploadId={}", file.getFileName(), uploadId);
 
-                boolean uploaded = httpUtil.uploadFile(file);
+                wsClient.prepareAck(uploadId);
+
+                boolean uploaded = httpUtil.uploadFile(file, uploadId);
                 if (!uploaded) {
                     log.warn("Upload failed for: {}, will retry later.", file);
+                    wsClient.cancelAck(uploadId);
                     queue.enqueue(file);
                     Thread.sleep(5000);
                     continue;
                 }
 
                 log.info("Upload sent successfully, waiting for server acknowledgment...");
-                boolean ack = wsClient.waitForAck(file.getFileName().toString(), Duration.ofSeconds(30));
+                boolean ack = wsClient.waitForAck(uploadId, Duration.ofSeconds(30));
 
                 if (ack) {
-                    Files.deleteIfExists(file);
-                    queue.markComplete(file);
-                    log.info("File acknowledged and deleted: {}", file);
+                   try{
+                       queue.markComplete(file);
+                       Files.deleteIfExists(file);
+                       log.info("File [{}] acknowledged and deleted.", file.getFileName());
+                   } catch (IOException e) {
+                       log.error("Failed to delete {} after acknowledgment: {}", file, e.getMessage());
+                   }
                 } else {
-                    log.warn("No acknowledgment for: {}, will retry later.", file);
+                    log.warn("No acknowledgment for uploadId={}, re-enqueuing file{}", uploadId, file);
                     queue.enqueue(file);
                 }
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.warn("UploadService interrupted.");
+                break;
             } catch (IOException e) {
                 log.error("I/O error in UploadService", e);
             } catch (Exception e) {

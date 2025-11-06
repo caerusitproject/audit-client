@@ -2,6 +2,7 @@ package com.caerus.audit.client;
 
 import com.caerus.audit.client.queue.PersistentFileQueue;
 import com.caerus.audit.client.service.*;
+import com.caerus.audit.client.util.AdminCheckUtil;
 import com.caerus.audit.client.util.HttpUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,11 @@ public class App
                 log.error("Unhandled exception in thread {}: {}", t.getName(), e.getMessage(), e)
         );
 
+        if(AdminCheckUtil.isCurrentUserAdmin()){
+            log.info("Admin detected — skipping monitoring.");
+            return;
+        }
+
         String serverBaseUrl = System.getProperty("server.url", "http://localhost:8089");
         String clientId = System.getProperty("client.id", InetAddress.getLocalHost().getHostName()).toLowerCase();
 
@@ -28,7 +34,7 @@ public class App
         Path queueDir = Paths.get(System.getProperty("java.io.tmpdir"), "auditclient");
         PersistentFileQueue queue = new PersistentFileQueue(queueDir);
 
-        HttpUtil httpUtil = new HttpUtil(serverBaseUrl, clientId, configService);
+        HttpUtil httpUtil = new HttpUtil(serverBaseUrl, clientId);
         ScreenshotService screenshotService = new ScreenshotService(configService, queue);
         UploadService uploadService = new UploadService(queue, wsClient, httpUtil);
         IdleMonitor idleMonitor = new IdleMonitor(configService, screenshotService);

@@ -20,12 +20,10 @@ public class HttpUtil {
 
     private final String serverBaseUrl;
     private final String clientId;
-    private final ConfigService configService;
 
-    public HttpUtil(String serverBaseUrl, String clientId, ConfigService configService) {
+    public HttpUtil(String serverBaseUrl, String clientId) {
         this.serverBaseUrl = serverBaseUrl;
         this.clientId = clientId;
-        this.configService = configService;
     }
 
     /**
@@ -33,7 +31,7 @@ public class HttpUtil {
      * @param file Path to file for upload.
      * @return true if upload succeeds (2xx), false otherwise.
      */
-    public boolean uploadFile(Path file) {
+    public boolean uploadFile(Path file, String uploadId) {
         String endpoint = serverBaseUrl + "/api/v1/upload";
         int maxRetries = 3;
         long retryDelaySec = 3;
@@ -42,6 +40,7 @@ public class HttpUtil {
             try (CloseableHttpClient client = HttpClients.createDefault()) {
                 HttpPost post = new HttpPost(endpoint);
                 post.addHeader("Client-Id", clientId);
+                post.addHeader("X-Upload-Id", uploadId);
 
                 HttpEntity entity = MultipartEntityBuilder.create()
                         .addBinaryBody("file", file.toFile(), ContentType.APPLICATION_OCTET_STREAM, file.getFileName().toString())
