@@ -1,5 +1,7 @@
 package com.caerus.audit.client.service;
 
+import com.caerus.audit.client.queue.PersistentFileQueue;
+import com.caerus.audit.client.util.HttpUtil;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -8,87 +10,80 @@ import org.apache.hc.core5.http.ContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class UploadService {
-    private final Logger log = LoggerFactory.getLogger(UploadService.class);
-    private final String serverBase;
-    private final String clientId;
-    private final FileQueue queue;
-    private final WebSocketClient ws;
-    private final ConfigService config;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private volatile boolean running = false;
+public class UploadService implements Runnable{
+    private static final Logger log = LoggerFactory.getLogger(UploadService.class);
 
-    public UploadService(String serverBase, String clientId, FileQueue queue, WebSocketClient ws, ConfigService config) {
-        this.serverBase = serverBase;
-        this.clientId = clientId;
+    private final PersistentFileQueue queue;
+    private final WebSocketClient wsClient;
+    private final HttpUtil httpUtil;
+    private volatile boolean running = true;
+
+    public UploadService(PersistentFileQueue queue, WebSocketClient wsClient, HttpUtil httpUtil) {
         this.queue = queue;
-        this.ws = ws;
-        this.config = config;
+        this.wsClient = wsClient;
+        this.httpUtil = httpUtil;
     }
 
-    public void start(){
-        running = true;
-        worker.submit(this::processLoop);
-    }
+    @Override
+    public void run() {
+        log.info("UploadService started.");
 
-    public void stop(){
-        running = false;
-        worker.shutdownNow();
-    }
+        while (running) {
+            try {
+                Path file = queue.take();
+                String uploadId = UUID.randomUUID().toString();
+                log.info("Uploading file [{}] with uploadId={}", file.getFileName(), uploadId);
 
-    private void processLoop(){
-        try(CloseableHttpClient http = HttpClients.createDefault()){
-            while (running){
-                Path p = queue.take();
-                int attempts = 0;
-                boolean done = false;
-                while(!done && attempts < 5){
-                    attempts++;
-                    try{
-                        HttpPost post = new HttpPost(serverBase + "/api/v1/upload");
-                        MultipartEntityBuilder builder = MultipartEntityBuilder.create();
-                        builder.addBinaryBody("file", p.toFile(), ContentType.create("image/png"), p.getFileName().toString());
-                        builder.addTextBody("clientId", clientId);
-                        post.setEntity(builder.build());
-                        var resp = http.execute(post);
-                        int sc = resp.getCode();
-                        resp.close();
-                        if(sc >= 200 && sc < 300){
-                            log.info("Uploaded {} -> server (attempt {})", p, attempts);
-                            boolean ack = ws.waitForAck(p.getFileName().toString(), Math.max(5, getCommResolveWindow()));
-                            if(ack){
-                                Files.deleteIfExists(p);
-                                done = true;
-                            } else {
-                                log.warn("Server did not acknowledge upload of {} (attempt {})", p, attempts);
-                            }
-                        } else {
-                            log.warn("Server returned {} (attempt {})", sc, attempts);
-                        }
-                    } catch (Exception e) {
-                        log.error("Error uploading {}", p, e);
-                        Thread.sleep(2000L * attempts);
-                    }
+                wsClient.prepareAck(uploadId);
+
+                boolean uploaded = httpUtil.uploadFile(file, uploadId);
+                if (!uploaded) {
+                    log.warn("Upload failed for: {}, will retry later.", file);
+                    wsClient.cancelAck(uploadId);
+                    queue.enqueue(file);
+                    Thread.sleep(5000);
+                    continue;
                 }
-                if(!done){
-                    log.error("Failed to upload {} after 5 attempts", p);
+
+                log.info("Upload sent successfully, waiting for server acknowledgment...");
+                boolean ack = wsClient.waitForAck(uploadId, Duration.ofSeconds(30));
+
+                if (ack) {
+                   try{
+                       queue.markComplete(file);
+                       Files.deleteIfExists(file);
+                       log.info("File [{}] acknowledged and deleted.", file.getFileName());
+                   } catch (IOException e) {
+                       log.error("Failed to delete {} after acknowledgment: {}", file, e.getMessage());
+                   }
+                } else {
+                    log.warn("No acknowledgment for uploadId={}, re-enqueuing file{}", uploadId, file);
+                    queue.enqueue(file);
                 }
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("UploadService interrupted.");
+                break;
+            } catch (IOException e) {
+                log.error("I/O error in UploadService", e);
+            } catch (Exception e) {
+                log.error("Unexpected error in UploadService", e);
             }
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            log.warn("Upload service interrupted");
-        } catch (Exception e) {
-            log.error("Upload service error: {}", e.getMessage(), e);
         }
+
+        log.info("UploadService stopped.");
     }
 
-    private int getCommResolveWindow(){
-        var s = config.getLatest();
-        return (s!=null && s.configCommIssueAutoResolveWindow != null) ? s.configCommIssueAutoResolveWindow : 10;
+    public void stop() {
+        this.running = false;
     }
 }

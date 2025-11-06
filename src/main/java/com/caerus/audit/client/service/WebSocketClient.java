@@ -1,6 +1,8 @@
 package com.caerus.audit.client.service;
 
 import com.caerus.audit.client.model.ServerAppSettingsDto;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,7 +10,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
-import java.util.Map;
 import java.util.concurrent.*;
 
 public class WebSocketClient {
@@ -22,6 +23,7 @@ public class WebSocketClient {
     private final BlockingQueue<String> incoming = new LinkedBlockingQueue<>();
 
     private final ConcurrentMap<String, CompletableFuture<Boolean>> ackMap = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public WebSocketClient(String serverBase, String clientId, ConfigService config) {
         this.serverBase = serverBase;
@@ -65,7 +67,7 @@ public class WebSocketClient {
 
                         @Override
                         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-                            log.info("WS closed {} {}", statusCode, reason);
+                            log.info("WS closed [{}] {}", statusCode, reason);
                             return null;
                         }
 
@@ -92,31 +94,52 @@ public class WebSocketClient {
 
     private void handleMessage(String msg){
         log.info("WS msg: {}", msg);
-        if(msg.startsWith("UPLOAD_SUCCESS:")){
-            String nameOrPath = msg.substring("UPLOAD_SUCCESS:".length());
-            String fileName = nameOrPath.replace("\\", "/");
-            int idx = fileName.lastIndexOf('/');
-            if(idx >= 0) fileName = fileName.substring(idx+1);
-            CompletableFuture<Boolean> f = ackMap.remove(fileName);
-            if(f!=null) f.complete(true);
-        } else if(msg.startsWith("UPLOAD_FAILED:")){
-            String fileName = msg.substring("UPLOAD_FAILED:".length()).trim();
-            CompletableFuture<Boolean> f = ackMap.remove(fileName);
-            if(f!=null) f.complete(false);
-        } else if("ping".equalsIgnoreCase(msg.trim())){
-            log.info("server ping");
-        } else{
-            log.info("WS message: {}", msg);
+        String trimmed = msg.trim();
+
+        if ("ping".equalsIgnoreCase(trimmed)) {
+            log.debug("Server heartbeat ping received");
+            sendText("pong");
+            return;
+        }
+
+        if ("pong".equalsIgnoreCase(trimmed)) {
+            log.debug("Server acknowledged pong");
+            return;
+        }
+
+        try{
+            JsonNode node = objectMapper.readTree(trimmed);
+            String type = node.path("type").asText();
+
+            if ("UPLOAD_SUCCESS".equalsIgnoreCase(type) || "UPLOAD_FAILED".equalsIgnoreCase(type)) {
+                String uploadId = node.path("uploadId").asText();
+                boolean success = node.path("success").asBoolean(true);
+
+                CompletableFuture<Boolean> future = ackMap.remove(uploadId);
+                if (future != null) {
+                    future.complete(success);
+                    log.info("Ack received for uploadId={} (success={})", uploadId, success);
+                } else {
+                    log.warn("No pending upload waiting for ack uploadId={}", uploadId);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Non-JSON or invalid WS message: {}", trimmed);
         }
     }
 
-    public boolean waitForAck(String fileName, long timeoutSeconds){
-        CompletableFuture<Boolean> f = new CompletableFuture<>();
-        ackMap.put(fileName, f);
-        try{
-            return f.get(timeoutSeconds, TimeUnit.SECONDS);
+    public boolean waitForAck(String uploadId, Duration timeout) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        ackMap.put(uploadId, future);
+        try {
+            return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("Timeout waiting for ack of uploadId={}", uploadId);
+            ackMap.remove(uploadId);
+            return false;
         } catch (Exception e) {
-            ackMap.remove(fileName);
+            log.error("Error waiting for ack of {}: {}", uploadId, e.getMessage());
+            ackMap.remove(uploadId);
             return false;
         }
     }
@@ -131,4 +154,11 @@ public class WebSocketClient {
         }
     }
 
+    public void prepareAck(String uploadId){
+        ackMap.put(uploadId, new CompletableFuture<>());
+    }
+
+    public void cancelAck(String uploadId){
+        ackMap.remove(uploadId);
+    }
 }
