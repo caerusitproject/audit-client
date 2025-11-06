@@ -15,17 +15,20 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class ScreenshotService {
     private final Logger log = LoggerFactory.getLogger(ScreenshotService.class);
+    private static final long MAX_FOLDER_SIZE_MB = 10;
+
     private final ConfigService config;
     private final PersistentFileQueue queue;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledExecutorService scheduler;
+    private ScheduledFuture<?> captureTask;
+    private final Object lock = new Object();
     private Robot robot;
     private volatile boolean running = false;
-
-    private static final long MAX_FOLDER_SIZE_MB = 10;
 
     public ScreenshotService(ConfigService config, PersistentFileQueue queue) {
         this.config = config;
@@ -36,17 +39,50 @@ public class ScreenshotService {
             log.error("Failed to create Robot", e);
             throw new IllegalStateException(e);
         }
+        this.scheduler = createScheduler();
+    }
+
+    private ScheduledExecutorService createScheduler() {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "ScreenshotService-Thread");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     public void start(){
-        running = true;
-        long intervalSec = Math.max(1, getCaptureInterval());
-        scheduler.scheduleAtFixedRate(this::captureIfActive, 0, intervalSec, TimeUnit.SECONDS);
+        synchronized (lock) {
+            if (running) {
+                log.debug("ScreenshotService already running");
+                return;
+            }
+            running = true;
+
+            if (scheduler.isShutdown() || scheduler.isTerminated()) {
+                log.warn("Scheduler was shut down — recreating executor");
+                scheduler = createScheduler();
+            }
+
+            long intervalSec = Math.max(1, getCaptureInterval());
+            captureTask = scheduler.scheduleAtFixedRate(
+                    this::captureIfActive, 0, intervalSec, TimeUnit.SECONDS
+            );
+            log.info("ScreenshotService started (interval={}s)", intervalSec);
+        }
     }
 
     public void stop(){
-        running = false;
-        scheduler.shutdown();
+        synchronized (lock) {
+            if (!running) return;
+            running = false;
+
+            if (captureTask != null && !captureTask.isCancelled()) {
+                captureTask.cancel(false);
+                captureTask = null;
+            }
+
+            log.info("ScreenshotService paused (scheduler still alive)");
+        }
     }
 
     private boolean hasSpace(Path tmpDir){
