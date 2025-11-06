@@ -13,7 +13,7 @@ public class IdleMonitor {
     private final Logger log = LoggerFactory.getLogger(IdleMonitor.class);
     private final ConfigService config;
     private final ScreenshotService screenshotService;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler;
     private boolean paused = false;
 
     public interface Kernel32 extends StdCallLibrary {
@@ -24,6 +24,9 @@ public class IdleMonitor {
     public IdleMonitor(ConfigService config, ScreenshotService screenshotService) {
         this.config = config;
         this.screenshotService = screenshotService;
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                r -> new Thread(r, "IdleMonitor-Thread")
+        );
     }
 
     public void start() {
