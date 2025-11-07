@@ -29,7 +29,7 @@ public class App
         String clientId = System.getProperty("client.id", InetAddress.getLocalHost().getHostName()).toLowerCase();
 
         ConfigService configService = new ConfigService(serverBaseUrl, clientId);
-        WebSocketClient wsClient = new WebSocketClient(serverBaseUrl, clientId, configService);
+        WebSocketClient wsClient = new WebSocketClient(serverBaseUrl, clientId);
 
         Path queueDir = Paths.get(System.getProperty("java.io.tmpdir"), "auditclient");
         PersistentFileQueue queue = new PersistentFileQueue(queueDir);
@@ -43,19 +43,17 @@ public class App
         configService.start();
         wsClient.start();
         screenshotService.start();
-        Thread uploadThread = new Thread(uploadService, "UploadService-Thread");
-        uploadThread.start();
-
         idleMonitor.start();
         healthMonitor.start();
-        log.info("Client started...");
+
+        log.info("Starting UploadService loop...");
+        uploadService.start();
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down client...");
             try {
                 healthMonitor.stop();
                 idleMonitor.stop();
-                uploadService.stop();
                 screenshotService.stop();
                 wsClient.stop();
                 configService.stop();
