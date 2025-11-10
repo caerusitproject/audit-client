@@ -1,6 +1,7 @@
 package com.caerus.audit.client.service;
 
 import com.caerus.audit.client.queue.PersistentFileQueue;
+import com.caerus.audit.client.util.SystemLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,8 @@ import java.util.concurrent.TimeUnit;
 public class ScreenshotService {
     private final Logger log = LoggerFactory.getLogger(ScreenshotService.class);
     private static final long MAX_FOLDER_SIZE_MB = 10;
+    private static final double LOCK_THRESHOLD = 0.9;
+    private static final double UNLOCK_THRESHOLD = 0.5;
 
     private final ConfigService config;
     private final PersistentFileQueue queue;
@@ -29,6 +32,7 @@ public class ScreenshotService {
     private final Object lock = new Object();
     private Robot robot;
     private volatile boolean running = false;
+    private volatile boolean lockedDueToSpace = false;
 
     public ScreenshotService(ConfigService config, PersistentFileQueue queue) {
         this.config = config;
@@ -85,9 +89,10 @@ public class ScreenshotService {
         }
     }
 
-    private boolean hasSpace(Path tmpDir){
-        try{
-            long size = Files.walk(tmpDir)
+    private double getUsedFraction(Path tmpDir) {
+        try {
+            long totalBytes = MAX_FOLDER_SIZE_MB * 1024 * 1024;
+            long usedBytes = Files.walk(tmpDir)
                     .filter(Files::isRegularFile)
                     .mapToLong(p -> {
                         try {
@@ -97,11 +102,10 @@ public class ScreenshotService {
                         }
                     }).sum();
 
-            long sizeMb = size / (1024 * 1024);
-            return sizeMb < MAX_FOLDER_SIZE_MB;
-        } catch (IOException e){
-            log.error("Error checking folder size", e);
-            return true;
+            return (double) usedBytes / totalBytes;
+        } catch (IOException e) {
+            log.error("Error calculating folder usage", e);
+            return 0.0;
         }
     }
 
@@ -115,9 +119,22 @@ public class ScreenshotService {
             if(!running) return;
             Path tmpDir = Paths.get(System.getProperty("java.io.tmpdir"), "auditclient");
 
-            if(!hasSpace(tmpDir)){
-                log.warn("Temp folder reached limit (>{} MB), pausing captures", MAX_FOLDER_SIZE_MB);
-                stop(); // Stop capturing temporarily
+            double usedFraction = getUsedFraction(tmpDir);
+            if(lockedDueToSpace){
+               if(usedFraction <= UNLOCK_THRESHOLD){
+                   lockedDueToSpace = false;
+                   log.info("Disk usage below 50%, resuming screenshot capture...");
+                   start();
+               }else {
+                   log.info("Still waiting for disk cleanup (used {:.2f}%)", usedFraction * 100);
+                   return;
+               }
+            }
+            if(usedFraction >= LOCK_THRESHOLD){
+                lockedDueToSpace = true;
+                stop();
+                log.warn("Disk usage above 90%, pausing screenshot capture...");
+                SystemLock.lockWorkstation(); // todo: log to db here
                 return;
             }
             capture();
