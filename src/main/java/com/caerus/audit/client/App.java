@@ -27,7 +27,9 @@ public class App
 
         String serverBaseUrl = System.getProperty("server.url", "http://localhost:8089");
         String clientId = System.getProperty("client.id", InetAddress.getLocalHost().getHostName()).toLowerCase();
+        String ipAddress = InetAddress.getLocalHost().getHostAddress();
 
+        EventReporter eventReporter = new EventReporter(serverBaseUrl, clientId, ipAddress);
         ConfigService configService = new ConfigService(serverBaseUrl, clientId);
         WebSocketClient wsClient = new WebSocketClient(serverBaseUrl, clientId);
 
@@ -35,9 +37,9 @@ public class App
         PersistentFileQueue queue = new PersistentFileQueue(queueDir);
 
         HttpUtil httpUtil = new HttpUtil(serverBaseUrl, clientId);
-        ScreenshotService screenshotService = new ScreenshotService(configService, queue);
-        UploadService uploadService = new UploadService(queue, wsClient, httpUtil);
-        IdleMonitor idleMonitor = new IdleMonitor(configService, screenshotService);
+        ScreenshotService screenshotService = new ScreenshotService(configService, queue, eventReporter);
+        UploadService uploadService = new UploadService(queue, wsClient, httpUtil, eventReporter);
+        IdleMonitor idleMonitor = new IdleMonitor(configService, screenshotService, eventReporter);
         HealthMonitor healthMonitor = new HealthMonitor(wsClient, uploadService, screenshotService, configService);
 
         configService.start();

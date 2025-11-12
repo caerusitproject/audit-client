@@ -1,5 +1,6 @@
 package com.caerus.audit.client.service;
 
+import com.caerus.audit.client.enums.EventType;
 import com.sun.jna.Native;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinUser;
@@ -14,6 +15,7 @@ public class IdleMonitor {
     private final ConfigService config;
     private final ScreenshotService screenshotService;
     private final ScheduledExecutorService scheduler;
+    private final EventReporter eventReporter;
     private boolean paused = false;
 
     public interface Kernel32 extends StdCallLibrary {
@@ -21,9 +23,10 @@ public class IdleMonitor {
         int GetLastError();
     }
 
-    public IdleMonitor(ConfigService config, ScreenshotService screenshotService) {
+    public IdleMonitor(ConfigService config, ScreenshotService screenshotService, EventReporter eventReporter) {
         this.config = config;
         this.screenshotService = screenshotService;
+        this.eventReporter = eventReporter;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 r -> new Thread(r, "IdleMonitor-Thread")
         );
@@ -46,6 +49,10 @@ public class IdleMonitor {
                 paused = true;
                 log.info("System idle for {}s; pausing captures", idleSec);
                 screenshotService.stop();
+                eventReporter.logEvent(
+                        EventType.NORMAL.getCode(),
+                        "System idle for " + idleSec + "s"
+                );
             } else if(idleSec < idleThreshold && paused){
                 paused = false;
                 log.info("System active; resuming captures");
