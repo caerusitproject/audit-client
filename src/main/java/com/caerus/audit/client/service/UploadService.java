@@ -1,7 +1,9 @@
 package com.caerus.audit.client.service;
 
+import com.caerus.audit.client.enums.ErrorType;
 import com.caerus.audit.client.queue.PersistentFileQueue;
 import com.caerus.audit.client.util.HttpUtil;
+import com.caerus.audit.client.util.SystemLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,11 +18,13 @@ public class UploadService {
     private final PersistentFileQueue queue;
     private final WebSocketClient wsClient;
     private final HttpUtil httpUtil;
+    private final EventReporter eventReporter;
 
-    public UploadService(PersistentFileQueue queue, WebSocketClient wsClient, HttpUtil httpUtil) {
+    public UploadService(PersistentFileQueue queue, WebSocketClient wsClient, HttpUtil httpUtil, EventReporter eventReporter) {
         this.queue = queue;
         this.wsClient = wsClient;
         this.httpUtil = httpUtil;
+        this.eventReporter = eventReporter;
     }
 
     /** Blocking sequential upload loop */
@@ -53,6 +57,14 @@ public class UploadService {
                 boolean uploaded = httpUtil.uploadFile(file, uploadId);
                 if (!uploaded) {
                     queue.incrementRetry(file);
+                    if(queue.hasExceededRetryLimit(file)){
+                        log.error("File {} permanently failed after max retries", file);
+                        SystemLock.lockWorkstation();
+                        eventReporter.logError(
+                                ErrorType.STORAGE_ERROR.getCode(),
+                                "File upload failed after max retries: " + file.getFileName().toString()
+                        );
+                    }
                     log.warn("Upload failed for {}, will retry later.", file);
                     continue;
                 }

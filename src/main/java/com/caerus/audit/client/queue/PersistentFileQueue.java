@@ -102,4 +102,10 @@ public class PersistentFileQueue {
     public boolean isEmpty(){
         return memoryQueue.isEmpty();
     }
+
+    public boolean hasExceededRetryLimit(Path file){
+        return memoryQueue.stream()
+                .filter(e -> e.file().equals(file))
+                .anyMatch(e -> e.retries() >= MAX_RETRIES);
+    }
 }

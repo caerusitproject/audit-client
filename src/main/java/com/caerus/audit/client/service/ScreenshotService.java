@@ -1,5 +1,6 @@
 package com.caerus.audit.client.service;
 
+import com.caerus.audit.client.enums.EventType;
 import com.caerus.audit.client.queue.PersistentFileQueue;
 import com.caerus.audit.client.util.SystemLock;
 import org.slf4j.Logger;
@@ -27,6 +28,7 @@ public class ScreenshotService {
 
     private final ConfigService config;
     private final PersistentFileQueue queue;
+    private final EventReporter eventReporter;
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> captureTask;
     private final Object lock = new Object();
@@ -34,9 +36,10 @@ public class ScreenshotService {
     private volatile boolean running = false;
     private volatile boolean lockedDueToSpace = false;
 
-    public ScreenshotService(ConfigService config, PersistentFileQueue queue) {
+    public ScreenshotService(ConfigService config, PersistentFileQueue queue, EventReporter eventReporter) {
         this.config = config;
         this.queue = queue;
+        this.eventReporter = eventReporter;
         try {
             robot = new Robot();
         } catch (AWTException e) {
@@ -126,7 +129,7 @@ public class ScreenshotService {
                    log.info("Disk usage below 50%, resuming screenshot capture...");
                    start();
                }else {
-                   log.info("Still waiting for disk cleanup (used {:.2f}%)", usedFraction * 100);
+                   log.info("Still waiting for disk cleanup (used {}%)", String.format("%.2f", usedFraction * 100));
                    return;
                }
             }
@@ -134,7 +137,10 @@ public class ScreenshotService {
                 lockedDueToSpace = true;
                 stop();
                 log.warn("Disk usage above 90%, pausing screenshot capture...");
-                SystemLock.lockWorkstation(); // todo: log to db here
+                SystemLock.lockWorkstation();
+                eventReporter.logEvent(
+                        EventType.CLIENT_STORAGE_FULL.getCode(),
+                        "Disk usage exceeded 90%, workstation locked");
                 return;
             }
             capture();
