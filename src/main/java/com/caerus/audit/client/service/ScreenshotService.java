@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 public class ScreenshotService {
     private final Logger log = LoggerFactory.getLogger(ScreenshotService.class);
-    private static final long MAX_FOLDER_SIZE_MB = 10;
+    private static final long MAX_FOLDER_SIZE_MB = 1024;
     private static final double LOCK_THRESHOLD = 0.9;
     private static final double UNLOCK_THRESHOLD = 0.5;
 

@@ -13,16 +13,10 @@ import java.util.concurrent.TimeUnit;
 public class HealthMonitor {
     private final Logger log = LoggerFactory.getLogger(HealthMonitor.class);
     private final WebSocketClient ws;
-    private final UploadService uploadService;
-    private final ScreenshotService screenshotService;
-    private final ConfigService config;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    public HealthMonitor(WebSocketClient ws, UploadService uploadService, ScreenshotService screenshotService, ConfigService config) {
+    public HealthMonitor(WebSocketClient ws) {
         this.ws = ws;
-        this.uploadService = uploadService;
-        this.screenshotService = screenshotService;
-        this.config = config;
     }
 
     public void start() {
@@ -35,7 +29,8 @@ public class HealthMonitor {
 
     private void check(){
         try{
-            log.info("Health check: queue size etc.");
+            log.info("Health check triggered");
+            log.info("WebSocket connected: {}", ws.isConnected());
             Path tmp = Paths.get(System.getProperty("java.io.tmpdir"), "auditclient");
             if(Files.exists(tmp)){
                 long size = Files.walk(tmp).filter(Files::isRegularFile).mapToLong(p -> {
@@ -43,9 +38,7 @@ public class HealthMonitor {
                 }).sum();
 
                 long mb = size / (1024 * 1024);
-                var s = config.getLatest();
-                int threshold = (s!=null && s.tempFolderFreeSpaceThreshold != null) ? s.tempFolderFreeSpaceThreshold : 10;
-                log.info("Temp folder size: {} MB, threshold: {} MB", mb, threshold);
+                log.info("Temp folder usage: {} MB", mb);
             }
         } catch (Exception e) {
             log.error("Health check failed: {}", e.getMessage());
