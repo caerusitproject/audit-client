@@ -17,10 +17,4 @@ public class ServerAppSettingsDto {
     public String configDestFolderPath;
     @JsonProperty("folderStructureTemplate")
     public String folderStructureTemplate;
-    @JsonProperty("tempFolderFreeSpaceThreshold")
-    public Short tempFolderFreeSpaceThreshold;
-    @JsonProperty("lockThreshold")
-    public Short lockThreshold;
-    @JsonProperty("emailNotifyEnabled")
-    public Boolean emailNotifyEnabled;
 }
