@@ -5,16 +5,21 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ServerAppSettingsDto {
-    @JsonProperty("configIdleTimeout")
-    public Short configIdleTimeout;
-    @JsonProperty("configCaptureInterval")
-    public Short configCaptureInterval;
-    @JsonProperty("configCommIssueAutoResolveWindow")
-    public Short configCommIssueAutoResolveWindow;
-    @JsonProperty("configHeartbeatInterval")
-    public Short configHeartbeatInterval;
-    @JsonProperty("configDestFolderPath")
-    public String configDestFolderPath;
-    @JsonProperty("folderStructureTemplate")
-    public String folderStructureTemplate;
+  @JsonProperty("configIdleTimeout")
+  public Short configIdleTimeout;
+
+  @JsonProperty("configCaptureInterval")
+  public Short configCaptureInterval;
+
+  @JsonProperty("configCommIssueAutoResolveWindow")
+  public Short configCommIssueAutoResolveWindow;
+
+  @JsonProperty("configHeartbeatInterval")
+  public Short configHeartbeatInterval;
+
+  @JsonProperty("configDestFolderPath")
+  public String configDestFolderPath;
+
+  @JsonProperty("folderStructureTemplate")
+  public String folderStructureTemplate;
 }
