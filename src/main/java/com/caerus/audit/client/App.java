@@ -20,7 +20,7 @@ public class App {
             log.error("Unhandled exception in thread {}: {}", t.getName(), e.getMessage(), e));
 
     try {
-      if (AdminCheckUtil.isCurrentUserAdmin()) {
+      if (AdminCheckUtil.isLoggedInUserAdmin()) {
         log.info("Admin detected — skipping monitoring.");
         return;
       }

@@ -6,47 +6,54 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class AdminCheckUtil {
-  private static final Logger log = LoggerFactory.getLogger(AdminCheckUtil.class);
 
-  public static boolean isCurrentUserAdmin() {
-    WinNT.HANDLEByReference hTokenRef = new WinNT.HANDLEByReference();
-    try {
-      boolean success =
-          Advapi32.INSTANCE.OpenProcessToken(
-              Kernel32.INSTANCE.GetCurrentProcess(), WinNT.TOKEN_QUERY, hTokenRef);
+    private static final Logger log = LoggerFactory.getLogger(AdminCheckUtil.class);
 
-      if (!success) {
-        log.warn("OpenProcessToken failed: {}", Kernel32.INSTANCE.GetLastError());
-        return false;
-      }
+    public static boolean isLoggedInUserAdmin() {
+        WinNT.HANDLEByReference userToken = new WinNT.HANDLEByReference();
 
-      WinNT.TOKEN_ELEVATION elevation = new WinNT.TOKEN_ELEVATION();
-      IntByReference returnLength = new IntByReference();
+        try {
+            int sessionId = Kernel32Ext.INSTANCE.WTSGetActiveConsoleSessionId();
+            if (sessionId == 0xFFFFFFFF) {
+                log.warn("No active console session found.");
+                return false;
+            }
 
-      boolean result =
-          Advapi32.INSTANCE.GetTokenInformation(
-              hTokenRef.getValue(),
-              WinNT.TOKEN_INFORMATION_CLASS.TokenElevation,
-              elevation,
-              elevation.size(),
-              returnLength);
+            boolean gotToken =
+                    WtsApiExt.INSTANCE.WTSQueryUserToken(sessionId, userToken);
 
-      if (!result) {
-        log.warn("GetTokenInformation failed: {}", Kernel32.INSTANCE.GetLastError());
-        return false;
-      }
+            if (!gotToken) {
+                log.warn("WTSQueryUserToken failed: {}", Kernel32.INSTANCE.GetLastError());
+                return false;
+            }
 
-      boolean isAdmin = elevation.TokenIsElevated != 0;
-      log.info("User '{}' running as admin: {}", Advapi32Util.getUserName(), isAdmin);
-      return isAdmin;
+            WinNT.TOKEN_ELEVATION elevation = new WinNT.TOKEN_ELEVATION();
+            IntByReference returnLength = new IntByReference();
 
-    } catch (Exception e) {
-      log.error("Error checking admin privileges: {}", e.getMessage(), e);
-      return false;
-    } finally {
-      if (hTokenRef.getValue() != null) {
-        Kernel32.INSTANCE.CloseHandle(hTokenRef.getValue());
-      }
+            boolean result =
+                    Advapi32.INSTANCE.GetTokenInformation(
+                            userToken.getValue(),
+                            WinNT.TOKEN_INFORMATION_CLASS.TokenElevation,
+                            elevation,
+                            elevation.size(),
+                            returnLength);
+
+            if (!result) {
+                log.warn("GetTokenInformation failed: {}", Kernel32.INSTANCE.GetLastError());
+                return false;
+            }
+
+            boolean isAdmin = elevation.TokenIsElevated != 0;
+            return isAdmin;
+
+        } catch (Exception e) {
+            log.error("Error checking logged-in user privileges: {}", e.getMessage(), e);
+            return false;
+
+        } finally {
+            if (userToken.getValue() != null) {
+                Kernel32.INSTANCE.CloseHandle(userToken.getValue());
+            }
+        }
     }
-  }
 }

@@ -23,7 +23,6 @@ public class ConfigService {
   private final ObjectMapper mapper = new ObjectMapper();
   private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
   private volatile ServerAppSettingsDto cached;
-  private final Duration fetchInterval = Duration.ofSeconds(30);
 
   public ConfigService(String serverBase, String clientId) {
     this.serverBase = serverBase;
